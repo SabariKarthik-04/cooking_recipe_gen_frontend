@@ -55,17 +55,19 @@ export default function App() {
     abortRef.current = new AbortController();
 
     try {
-      await runSSE(
+      const response = await runSSE(
         message.trim(),
         userName,
-        (chunk) => {
-          setStatus("streaming");
-          setMessages((prev) =>
-            prev.map((m) => m.id === agentId ? { ...m, text: m.text + chunk } : m)
-          );
-        },
         sessionId,
         imageFile
+      );
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === agentId
+            ? { ...m, text: response || "⚠️ No reply received.", streaming: false }
+            : m
+        )
       );
     } catch (err) {
       if (err.name !== "AbortError") {
@@ -82,7 +84,6 @@ export default function App() {
       }
     }
 
-    setMessages((prev) => prev.map((m) => m.id === agentId ? { ...m, streaming: false } : m));
     setStatus("idle");
     setSelectedImage(null);
   }, [status, sessionReady, userName, sessionId]);

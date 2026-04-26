@@ -2,81 +2,58 @@ import { APP_NAME, BASE_URL } from './config.js';
 
 // API functions
 export async function createSession(userId, sessionId) {
-  const res = await fetch(
-    `${BASE_URL}/apps/${APP_NAME}/users/${userId}/sessions/${sessionId}`,
-    {
-      method: "POST",
-    //   headers: { "Content-Type": "application/json" },
-    //   body: JSON.stringify({
-    //     state: { __session_metadata__: { displayName: "hello" } },
-    //   }),
-    }
-  );
-  if (!res.ok && res.status !== 409) throw new Error("Session init failed");
+  const res = await fetch(`${BASE_URL}/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userId: userId,
+      sessionid: sessionId
+    }),
+  });
+
+  if (!res.ok) throw new Error("Session init failed");
+
+  return await res.json();
 }
 
-export async function runSSE(text, userId, onChunk, sessionId, imageFile = null) {
-  let newMessageParts = [
-    {
-      text: text
-    }
-  ];
+export async function runSSE(text, userId, sessionId, imageFile = null) {
+  const parts = [];
 
-  // Add image to parts if provided
-  if (imageFile) {
-    const base64Image = await fileToBase64(imageFile);
-    newMessageParts.push({
-      inline_data: {
-        mime_type: imageFile.type,
-        data: base64Image
-      }
+  // ✅ Add text part
+  if (text && text.trim()) {
+    parts.push({
+      text: text.trim(),
     });
   }
 
-  const body = JSON.stringify({
-    appName: APP_NAME,
-    userId: userId,
-    newMessage: {
-      role: "user",
-      parts: newMessageParts
-    },
-    sessionId: sessionId,
-    stateDelta: null,
-    streaming: false,
-  });
+  // ✅ Add image part
+  if (imageFile) {
+    const base64Image = await fileToBase64(imageFile);
 
-  const res = await fetch(`${BASE_URL}/run_sse`, {
+    parts.push({
+      inline_data: {
+        mime_type: imageFile.type, // e.g. image/png
+        data: base64Image,
+      },
+    });
+  }
+
+  const res = await fetch(`${BASE_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body,
+    body: JSON.stringify({
+      userId: userId,
+      sessionid: sessionId,
+      parts: parts, // ✅ IMPORTANT CHANGE
+    }),
   });
+
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const lines = buf.split("\n");
-    buf = lines.pop();
-    for (const line of lines) {
-      if (!line.startsWith("data:")) continue;
-      const raw = line.slice(5).trim();
-      if (!raw || raw === "[DONE]") continue;
-      try {
-        const ev = JSON.parse(raw);
-        for (const p of ev?.content?.parts ?? []) {
-          if (p.text) onChunk(p.text);
-        }
-      } catch { /* ignore */ }
-    }
-  }
+  const data = await res.json();
+  return data.response;
 }
 
-// Helper function to convert File to Base64
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
